@@ -38,12 +38,12 @@ if [ -z "${POSTGRES_ENV_POSTGRES_PASSWORD}" ]; then
 fi
 
 if [ -z "${POSTGRES_PORT_5432_TCP_ADDR}" ]; then
-  echo "You need to set the POSTGRES_PORT_5432_TCP_ADDR environment variable or link to a container named MYSQL."
+  echo "You need to set the POSTGRES_PORT_5432_TCP_ADDR environment variable or link to a container named POSTGRES."
   exit 1
 fi
 
 if [ -z "${POSTGRES_PORT_5432_TCP_PORT}" ]; then
-  echo "You need to set the POSTGRES_PORT_5432_TCP_PORT environment variable or link to a container named MYSQL."
+  echo "You need to set the POSTGRES_PORT_5432_TCP_PORT environment variable or link to a container named POSTGRES."
   exit 1
 fi
 
