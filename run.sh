@@ -2,56 +2,39 @@
 
 set -e
 
-if [ "${AWS_ACCESS_KEY_ID}" = "**None**" ]; then
-  echo "You need to set the AWS_ACCESS_KEY_ID environment variable."
-  exit 1
-fi
-
-if [ "${AWS_SECRET_ACCESS_KEY}" = "**None**" ]; then
-  echo "You need to set the AWS_SECRET_ACCESS_KEY environment variable."
-  exit 1
-fi
-
-if [ "${AWS_BUCKET}" = "**None**" ]; then
+if [ -z "${AWS_BUCKET}" ]; then
   echo "You need to set the AWS_BUCKET environment variable."
   exit 1
 fi
 
-if [ "${PREFIX}" = "**None**" ]; then
+if [ -z "${PREFIX}" ]; then
   echo "You need to set the PREFIX environment variable."
   exit 1
 fi
 
-if [ "${PGDUMP_DATABASE}" = "**None**" ]; then
-  echo "You need to set the PGDUMP_DATABASE environment variable."
+if [ -z "${PGDATABASE}" ]; then
+  echo "You need to set the PGDATABASE environment variable."
   exit 1
 fi
 
-if [ -z "${POSTGRES_ENV_POSTGRES_USER}" ]; then
-  echo "You need to set the POSTGRES_ENV_POSTGRES_USER environment variable."
+if [ -z "${PGUSER}" ]; then
+  echo "You need to set the PGUSER environment variable."
   exit 1
 fi
 
-if [ -z "${POSTGRES_ENV_POSTGRES_PASSWORD}" ]; then
-  echo "You need to set the POSTGRES_ENV_POSTGRES_PASS environment variable."
+if [ -z "${PGPASSWORD}" ]; then
+  echo "You need to set the PGPASSWORD environment variable."
   exit 1
 fi
 
-if [ -z "${POSTGRES_PORT_5432_TCP_ADDR}" ]; then
-  echo "You need to set the POSTGRES_PORT_5432_TCP_ADDR environment variable or link to a container named POSTGRES."
+if [ -z "${PGHOST}" ]; then
+  echo "You need to set the PGHOST environment variable."
   exit 1
 fi
 
-if [ -z "${POSTGRES_PORT_5432_TCP_PORT}" ]; then
-  echo "You need to set the POSTGRES_PORT_5432_TCP_PORT environment variable or link to a container named POSTGRES."
-  exit 1
-fi
+POSTGRES_HOST_OPTS=""
 
-POSTGRES_HOST_OPTS="-h $POSTGRES_PORT_5432_TCP_ADDR -p $POSTGRES_PORT_5432_TCP_PORT -U $POSTGRES_ENV_POSTGRES_USER"
-
-echo "Starting dump of ${PGDUMP_DATABASE} database(s) from ${POSTGRES_PORT_5432_TCP_ADDR}..."
-
-export PGPASSWORD=${POSTGRES_ENV_POSTGRES_PASSWORD}
+echo "Starting dump of ${PGDATABASE} database(s) from ${PGHOST}..."
 
 pg_dump $PGDUMP_OPTIONS $POSTGRES_HOST_OPTS $PGDUMP_DATABASE | aws s3 cp - s3://$AWS_BUCKET/$PREFIX/$(date +"%Y")/$(date +"%m")/$(date +"%d").dump || exit 2
 
