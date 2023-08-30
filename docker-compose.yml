@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:14.4
+    environment:
+      POSTGRES_PASSWORD: asdfasdf
+      POSTGRES_USER: root
+      POSTGRES_DB: testdata
+
+  backup:
+    build: .
+    environment:
+      PREFIX: testing
+      PGDATABASE: testdata
+      PGUSER: root
+      PGPASSWORD: asdfasdf
+      PGHOST: db
+      AWS_BUCKET: mybucket
+      AWS_ACCESS_KEY_ID: myid
+      AWS_SECRET_ACCESS_KEY: mykey
