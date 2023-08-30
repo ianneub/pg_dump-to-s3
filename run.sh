@@ -32,11 +32,9 @@ if [ -z "${PGHOST}" ]; then
   exit 1
 fi
 
-POSTGRES_HOST_OPTS=""
-
 echo "Starting dump of ${PGDATABASE} database(s) from ${PGHOST}..."
 
-pg_dump $PGDUMP_OPTIONS $POSTGRES_HOST_OPTS $PGDUMP_DATABASE | aws s3 cp - s3://$AWS_BUCKET/$PREFIX/$(date +"%Y")/$(date +"%m")/$(date +"%d").dump || exit 2
+pg_dump $PGDUMP_OPTIONS $PGDATABASE | aws s3 cp - s3://$AWS_BUCKET/$PREFIX/$(date +"%Y")/$(date +"%m")/$(date +"%d").dump || exit 2
 
 echo "Done!"
 
