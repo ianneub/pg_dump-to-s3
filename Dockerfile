@@ -1,7 +1,6 @@
-FROM postgres:14.4
+FROM postgres:15.4
 
-RUN apt-get update && apt-get install --no-install-recommends -y python3 python3-pip python3-setuptools && \
-  pip3 install awscli --upgrade && \
+RUN apt-get update && apt-get install --no-install-recommends -y awscli && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
