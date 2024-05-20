@@ -1,4 +1,4 @@
-FROM postgres:15.4
+FROM postgres:16.3
 
 RUN apt-get update && apt-get install --no-install-recommends -y awscli && \
   apt-get clean && \
