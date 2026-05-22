@@ -11,7 +11,7 @@ DO $$ BEGIN RAISE EXCEPTION 'residual PII found'; END $$;
 SQL
 
 set +e
-docker run --rm -v /tmp/sqlfail:/sql --entrypoint bash pg_dump_to_s3 -c '
+out="$(docker run --rm -v /tmp/sqlfail:/sql --entrypoint bash pg_dump_to_s3 -c '
   set -e
   export PGDATA=/tmp/pgdata
   mkdir -p "$PGDATA" && chown postgres:postgres "$PGDATA"
@@ -21,8 +21,10 @@ docker run --rm -v /tmp/sqlfail:/sql --entrypoint bash pg_dump_to_s3 -c '
   for f in $(find /sql -type f -name "*.sql" | sort); do
     gosu postgres psql -v ON_ERROR_STOP=1 -q -d sanitize -f "$f"
   done
-'
+' 2>&1)"
 rc=$?
 set -e
+echo "$out"
 [ "$rc" -ne 0 ] || { echo "FAIL: expected non-zero exit when assert RAISEs"; exit 1; }
-echo "PASS: assert script aborts the run (rc=$rc)"
+echo "$out" | grep -q 'residual PII found' || { echo "FAIL: aborted for the wrong reason (expected the RAISE message)"; exit 1; }
+echo "PASS: assert script aborts the run on RAISE (rc=$rc)"
