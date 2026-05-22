@@ -11,3 +11,17 @@ You must configure awscli inside the container. This can be done using either EN
 ## To build
 
     make
+
+## Sanitize
+
+If `SQL_S3` is set, the script first runs `aws s3 sync $SQL_S3 $SQL_DIR`
+(default `/sql`). If any `*.sql` are then present, it switches from plain
+backup to sanitize: it dumps the live DB (`PGHOST`/`PGDATABASE`/…), restores it
+into an ephemeral local Postgres, runs every `*.sql` in filename order with
+`ON_ERROR_STOP=1`, then re-dumps the result to `$DEST_S3`. With no SQL files it
+performs the normal live-DB backup to `s3://$AWS_BUCKET/$PREFIX/Y/M/D.dump`.
+
+Sanitize requires: `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `DEST_S3`.
+Optional: `SQL_S3`, `SQL_DIR`, `LOCAL_DB` (default `sanitize`).
+
+A script that `RAISE`s aborts the run before upload.
