@@ -68,10 +68,11 @@ gosu postgres initdb -A trust >/dev/null
 gosu postgres pg_ctl -D "$PGDATA" -o "-c listen_addresses='' -c fsync=off" -w start
 
 # Local commands must ignore the prod PG* env (which points at the source DB).
-local_pg() { gosu postgres env -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD "$@"; }
+local_pg() { gosu postgres env -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD -u PGDATABASE "$@"; }
 
 local_pg createdb "$LOCAL_DB"
 echo "Restoring dump into ${LOCAL_DB}..."
+# Restore assumes a gzip-compressed dump (PGDUMP_OPTIONS includes -Z); change this if using -Fc or uncompressed plain output.
 gunzip -c "$DUMP" | local_pg psql -v ON_ERROR_STOP=1 -q -d "$LOCAL_DB" >/dev/null
 
 echo "Applying ${#sql_scripts[@]} SQL script(s) from ${SQL_DIR} in name order..."
