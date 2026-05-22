@@ -1,41 +1,88 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-if [ -z "${AWS_BUCKET}" ]; then
-  echo "You need to set the AWS_BUCKET environment variable."
-  exit 1
+# ---------------------------------------------------------------------------
+# Optional: if SQL_S3 is set, sync that S3 URL into SQL_DIR (/sql) first.
+#
+# Behaviour then depends on whether SQL_DIR holds any *.sql (searched
+# recursively, so files nested a directory deep by `aws s3 sync` still count):
+#
+#   No *.sql        -> backup: stream a live pg_dump straight to S3 (unchanged).
+#       Required: AWS_BUCKET, PREFIX, PGDATABASE, PGUSER, PGPASSWORD, PGHOST
+#
+#   *.sql present   -> sanitize: dump the live DB, restore into an ephemeral
+#       local Postgres, run every *.sql in SQL_DIR in name order (ON_ERROR_STOP),
+#       re-dump, and upload to DEST_S3.
+#       Required: PGHOST, PGDATABASE, PGUSER, PGPASSWORD, DEST_S3
+#       Optional: SQL_S3, SQL_DIR (default /sql), LOCAL_DB (default sanitize)
+# ---------------------------------------------------------------------------
+
+: "${PGDUMP_OPTIONS:=-Fp -Z 9 --no-acl --no-owner}"
+SQL_DIR="${SQL_DIR:-/sql}"
+
+require() {
+  local name="$1"
+  if [ -z "${!name:-}" ]; then
+    echo "You need to set the ${name} environment variable."
+    exit 1
+  fi
+}
+
+if [ -n "${SQL_S3:-}" ]; then
+  mkdir -p "$SQL_DIR"
+  echo "Syncing SQL transforms from ${SQL_S3} ..."
+  aws s3 sync "$SQL_S3" "$SQL_DIR"
 fi
 
-if [ -z "${PREFIX}" ]; then
-  echo "You need to set the PREFIX environment variable."
-  exit 1
+# Find *.sql anywhere under SQL_DIR (recursive), ordered by path name.
+mapfile -t sql_scripts < <(find "$SQL_DIR" -type f -name '*.sql' 2>/dev/null | sort)
+
+if [ -n "${SQL_S3:-}" ] && [ ${#sql_scripts[@]} -eq 0 ]; then
+  echo "SQL_S3 set but no .sql files synced from ${SQL_S3}. Aborting."
+  exit 4
 fi
 
-if [ -z "${PGDATABASE}" ]; then
-  echo "You need to set the PGDATABASE environment variable."
-  exit 1
+# ---- Backup (default): no transforms present ----
+if [ ${#sql_scripts[@]} -eq 0 ]; then
+  for v in AWS_BUCKET PREFIX PGDATABASE PGUSER PGPASSWORD PGHOST; do require "$v"; done
+  echo "No SQL transforms in ${SQL_DIR}; backing up ${PGDATABASE} from ${PGHOST}..."
+  pg_dump $PGDUMP_OPTIONS "$PGDATABASE" \
+    | aws s3 cp - "s3://$AWS_BUCKET/$PREFIX/$(date +"%Y")/$(date +"%m")/$(date +"%d").dump" || exit 2
+  echo "Done!"
+  exit 0
 fi
 
-if [ -z "${PGUSER}" ]; then
-  echo "You need to set the PGUSER environment variable."
-  exit 1
-fi
+# ---- Sanitize: transforms present in SQL_DIR ----
+for v in PGHOST PGDATABASE PGUSER PGPASSWORD DEST_S3; do require "$v"; done
+LOCAL_DB="${LOCAL_DB:-sanitize}"
 
-if [ -z "${PGPASSWORD}" ]; then
-  echo "You need to set the PGPASSWORD environment variable."
-  exit 1
-fi
+DUMP=/tmp/source.dump
+echo "Found ${#sql_scripts[@]} SQL transform(s); dumping ${PGDATABASE} from ${PGHOST}..."
+pg_dump $PGDUMP_OPTIONS "$PGDATABASE" > "$DUMP"
 
-if [ -z "${PGHOST}" ]; then
-  echo "You need to set the PGHOST environment variable."
-  exit 1
-fi
+echo "Starting ephemeral local Postgres..."
+export PGDATA=/tmp/pgdata
+rm -rf "$PGDATA"; mkdir -p "$PGDATA"; chown postgres:postgres "$PGDATA"
+gosu postgres initdb -A trust >/dev/null
+gosu postgres pg_ctl -D "$PGDATA" -o "-c listen_addresses='' -c fsync=off" -w start
 
-echo "Starting dump of ${PGDATABASE} database(s) from ${PGHOST}..."
+# Local commands must ignore the prod PG* env (which points at the source DB).
+local_pg() { gosu postgres env -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD "$@"; }
 
-pg_dump $PGDUMP_OPTIONS $PGDATABASE | aws s3 cp - s3://$AWS_BUCKET/$PREFIX/$(date +"%Y")/$(date +"%m")/$(date +"%d").dump || exit 2
+local_pg createdb "$LOCAL_DB"
+echo "Restoring dump into ${LOCAL_DB}..."
+gunzip -c "$DUMP" | local_pg psql -v ON_ERROR_STOP=1 -q -d "$LOCAL_DB" >/dev/null
 
+echo "Applying ${#sql_scripts[@]} SQL script(s) from ${SQL_DIR} in name order..."
+for f in "${sql_scripts[@]}"; do
+  echo "  -> $f"
+  local_pg psql -v ON_ERROR_STOP=1 -q -d "$LOCAL_DB" -f "$f"
+done
+
+echo "Re-dumping sanitized DB to ${DEST_S3}..."
+local_pg pg_dump $PGDUMP_OPTIONS "$LOCAL_DB" | aws s3 cp - "$DEST_S3"
+
+gosu postgres pg_ctl -D "$PGDATA" -w stop
 echo "Done!"
-
 exit 0
