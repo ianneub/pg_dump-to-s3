@@ -1,4 +1,4 @@
-FROM postgres:18.3
+FROM postgres:18.4
 
 RUN apt-get update && apt-get install --no-install-recommends -y awscli && \
   apt-get clean && \
