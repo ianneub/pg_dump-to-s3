@@ -25,3 +25,16 @@ Sanitize requires: `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `DEST_S3`.
 Optional: `SQL_S3`, `SQL_DIR`, `LOCAL_DB` (default `sanitize`).
 
 A script that `RAISE`s aborts the run before upload.
+
+### Sanitize source: live DB vs. S3 dump
+
+When `*.sql` transforms are present (sanitize mode), the source DB is obtained as:
+
+- **`SOURCE_S3` set** (e.g. `s3://cd-prod-backups/prise/`): download the newest
+  `.dump` object under that prefix instead of dumping the live DB. Aborts if no
+  object is found, or if the newest object is older than `MAX_SOURCE_AGE_HOURS`
+  (default `26`). Requires `SOURCE_S3`, `DEST_S3`. Does **not** require `PG*`.
+- **`SOURCE_S3` unset**: live `pg_dump` from `PGHOST` (requires `PGHOST`,
+  `PGDATABASE`, `PGUSER`, `PGPASSWORD`).
+
+The S3 dump must be gzip-compressed plain SQL (the default `-Fp -Z 9` backup output).

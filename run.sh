@@ -54,12 +54,38 @@ if [ ${#sql_scripts[@]} -eq 0 ]; then
 fi
 
 # ---- Sanitize: transforms present in SQL_DIR ----
-for v in PGHOST PGDATABASE PGUSER PGPASSWORD DEST_S3; do require "$v"; done
+require DEST_S3
 LOCAL_DB="${LOCAL_DB:-sanitize}"
-
 DUMP=/tmp/source.dump
-echo "Found ${#sql_scripts[@]} SQL transform(s); dumping ${PGDATABASE} from ${PGHOST}..."
-pg_dump $PGDUMP_OPTIONS "$PGDATABASE" > "$DUMP"
+MAX_SOURCE_AGE_HOURS="${MAX_SOURCE_AGE_HOURS:-26}"
+
+if [ -n "${SOURCE_S3:-}" ]; then
+  # Restore from the newest .dump under the SOURCE_S3 prefix instead of dumping prod.
+  src="${SOURCE_S3#s3://}"; bucket="${src%%/*}"; prefix="${src#*/}"
+  echo "Resolving newest .dump under s3://${bucket}/${prefix} ..."
+  newest="$(aws s3api list-objects-v2 --bucket "$bucket" --prefix "$prefix" \
+    --query 'sort_by(Contents[?ends_with(Key, `.dump`)], &LastModified)[-1].[Key,LastModified]' \
+    --output text)"
+  if [ -z "$newest" ] || [ "$newest" = "None" ]; then
+    echo "No .dump object found under s3://${bucket}/${prefix}. Aborting." >&2
+    exit 5
+  fi
+  key="$(printf '%s' "$newest" | cut -f1)"
+  lastmod="$(printf '%s' "$newest" | cut -f2)"
+  last_epoch="$(date -d "$lastmod" +%s)"
+  age_h=$(( ( $(date +%s) - last_epoch ) / 3600 ))
+  echo "Newest dump: ${key} (LastModified ${lastmod}, age ${age_h}h)"
+  if [ "$age_h" -gt "$MAX_SOURCE_AGE_HOURS" ]; then
+    echo "Newest dump is ${age_h}h old, older than MAX_SOURCE_AGE_HOURS=${MAX_SOURCE_AGE_HOURS}. Aborting (stale)." >&2
+    exit 6
+  fi
+  echo "Downloading s3://${bucket}/${key} -> ${DUMP} ..."
+  aws s3 cp "s3://${bucket}/${key}" "$DUMP"
+else
+  for v in PGHOST PGDATABASE PGUSER PGPASSWORD; do require "$v"; done
+  echo "Found ${#sql_scripts[@]} SQL transform(s); dumping ${PGDATABASE} from ${PGHOST}..."
+  pg_dump $PGDUMP_OPTIONS "$PGDATABASE" > "$DUMP"
+fi
 
 echo "Starting ephemeral local Postgres..."
 export PGDATA=/tmp/pgdata
